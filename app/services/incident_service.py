@@ -80,10 +80,10 @@ def submit_crime_report(
         incident_id = cursor.lastrowid
 
         # ── 4. Insert Victim ──────────────────────────────────────────────────
-        victim_id = current_user["user_id"]
+        user_id = current_user["user_id"]
         cursor.execute(
-            """INSERT INTO Victim (victim_id, user_id, name, cnic, email, phone, address)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """INSERT INTO Victim (user_id, name, cnic, email, phone, address)
+                    VALUES (%s, %s, %s, %s, %s, %s)
                ON DUPLICATE KEY UPDATE
                    name    = VALUES(name),
                    cnic    = VALUES(cnic),
@@ -91,8 +91,7 @@ def submit_crime_report(
                    phone   = VALUES(phone),
                    address = VALUES(address)""",
             (
-                victim_id,
-                victim_id,
+                user_id,
                 current_user["name"],       # from Google OAuth
                 form.victim_cnic,
                 current_user["email"],      # from Google OAuth
@@ -103,9 +102,9 @@ def submit_crime_report(
 
         # ── 5. Insert Incident_Victim junction ────────────────────────────────
         cursor.execute(
-            """INSERT INTO Incident_Victim (incident_id, victim_id, injury_type)
+            """INSERT INTO Incident_Victim (incident_id, user_id, injury_type)
                VALUES (%s, %s, %s)""",
-            (incident_id, victim_id, form.injury_type)  # injury_type optional
+            (incident_id, user_id, form.injury_type)  # injury_type optional
         )
 
         # ── 6. Insert partial Suspect if victim provided a picture ────────────
@@ -146,7 +145,7 @@ def submit_crime_report(
     log_transaction(user_id, "Location",        "INSERT", location_id, ip_address)
     log_transaction(user_id, "CaseStatus",      "INSERT", status_id,   ip_address)
     log_transaction(user_id, "Incident",        "INSERT", incident_id, ip_address)
-    log_transaction(user_id, "Victim",          "INSERT", victim_id,   ip_address)
+    log_transaction(user_id, "Victim",          "INSERT", user_id,   ip_address)
     log_transaction(user_id, "Incident_Victim", "INSERT", incident_id, ip_address)
     if suspect_id:
         log_transaction(user_id, "Suspect",         "INSERT", suspect_id,  ip_address)
@@ -158,7 +157,7 @@ def submit_crime_report(
         "location_id":       location_id,
         "status":            "Waiting",
         "crime_severity":    "Pending — admin will review and set this.",
-        "victim_id":         victim_id,
+        "victim_id":         user_id,
         "suspect_created":   suspect_id is not None,
         "suspect_id":        suspect_id,  # None if no picture was provided
     }
@@ -170,29 +169,23 @@ def update_incident_media(
     current_user: dict,
     ip_address:   str = None,
 ) -> dict:
-    """
-    Victim updates CCTV footage paths for their incident's location.
 
-    Replaces ALL existing Location_CCTV rows for that location
-    with the new list provided. Ownership verified first.
-    Transaction log written on success.
-    """
-    if not form.cctv_footage_path:
+    if not form.cctv_footage_path and not form.picture_path:
         raise HTTPException(
             status_code=422,
-            detail="cctv_footage_path must contain one path."
+            detail="At least one of cctv_footage_path or picture_path is required."
         )
 
-    victim_id = current_user["user_id"]
+    user_id = current_user["user_id"]
     conn      = get_connection()
     cursor    = conn.cursor(dictionary=True)
 
     try:
-        # ── Ownership check ───────────────────────────────────────────────────
+        # ── Ownership check ───────────────────────────────────
         cursor.execute(
-            """SELECT victim_id FROM Incident_Victim
-               WHERE incident_id = %s AND victim_id = %s""",
-            (incident_id, victim_id)
+            """SELECT user_id FROM Incident_Victim
+               WHERE incident_id = %s AND user_id = %s""",
+            (incident_id, user_id)
         )
         if not cursor.fetchone():
             raise HTTPException(
@@ -200,7 +193,7 @@ def update_incident_media(
                 detail="You are not authorized to update this incident."
             )
 
-        # ── Get location_id ───────────────────────────────────────────────────
+        # ── Get location_id ───────────────────────────────────
         cursor.execute(
             "SELECT location_id FROM Incident WHERE incident_id = %s",
             (incident_id,)
@@ -208,18 +201,42 @@ def update_incident_media(
         row = cursor.fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Incident not found.")
+
         location_id = row["location_id"]
 
+        # ── Update CCTV (Location Table) ──────────────────────
         if form.cctv_footage_path:
             cursor.execute(
-                "UPDATE Location SET cctv_footage_path = %s WHERE location_id = %s",
+                """UPDATE Location
+                   SET cctv_footage_path = %s
+                   WHERE location_id = %s""",
                 (form.cctv_footage_path, location_id)
             )
+
+        # ── Update Suspect Picture ────────────────────────────
         if form.picture_path:
+            # Get all suspects linked to this incident
             cursor.execute(
-                "UPDATE Location SET picture_path = %s WHERE location_id = %s",
-                (form.picture_path, location_id)
+                """SELECT suspect_id FROM Incident_Suspect
+                   WHERE incident_id = %s""",
+                (incident_id,)
             )
+            suspects = cursor.fetchall()
+
+            if not suspects:
+                raise HTTPException(
+                    status_code=404,
+                    detail="No suspects found for this incident."
+                )
+
+            # Update ALL suspects (or you can update only one if needed)
+            for suspect in suspects:
+                cursor.execute(
+                    """UPDATE Suspect
+                       SET picture_path = %s
+                       WHERE suspect_id = %s""",
+                    (form.picture_path, suspect["suspect_id"])
+                )
 
         conn.commit()
 
@@ -232,14 +249,17 @@ def update_incident_media(
         cursor.close()
         conn.close()
 
-    # Transaction logs
-    log_transaction(current_user["user_id"], "Location", "UPDATE", location_id, ip_address)
+    # ── Logging ───────────────────────────────────────────────
+    log_transaction(current_user["user_id"], "Incident Media", "UPDATE", incident_id, ip_address)
 
     return {
-        "message":          "CCTV footage path updated successfully.",
-        "incident_id":       incident_id,
-        "location_id":       location_id,
-        "cctv_footage_path": form.cctv_footage_path,
+        "message": "Incident media updated successfully.",
+        "incident_id": incident_id,
+        "location_id": location_id,
+        "updated_fields": {
+            "cctv_footage_path": form.cctv_footage_path,
+            "picture_path": form.picture_path
+        }
     }
 
 
@@ -276,7 +296,7 @@ def get_my_incidents(current_user: dict) -> dict:
             JOIN Incident_Victim iv ON i.incident_id = iv.incident_id
             JOIN Location        l  ON i.location_id = l.location_id
             JOIN CaseStatus      cs ON i.status_id   = cs.status_id
-            WHERE iv.victim_id = %s
+            WHERE iv.user_id = %s
             ORDER BY i.reported_at DESC
             """,
             (victim_id,)
@@ -312,8 +332,8 @@ def get_incident_detail(incident_id: int, current_user: dict) -> dict:
     try:
         # ── Ownership check ───────────────────────────────────────────────────
         cursor.execute(
-            """SELECT victim_id FROM Incident_Victim
-               WHERE incident_id = %s AND victim_id = %s""",
+            """SELECT user_id FROM Incident_Victim
+               WHERE incident_id = %s AND user_id = %s""",
             (incident_id, victim_id)
         )
         if not cursor.fetchone():
@@ -331,8 +351,8 @@ def get_incident_detail(incident_id: int, current_user: dict) -> dict:
                 i.incident_datetime, i.reported_at,
                 l.location_id,      l.area_name,      l.street_address,
                 l.postal_code,      l.city,   l.cctv_footage_path,
-                cs.status_id,       cs.status_name,   cs.phone AS status_phone,
-                v.victim_id,        v.name  AS victim_name,
+                cs.status_id,       cs.status_name, 
+                v.user_id,        v.name  AS victim_name,
                 v.cnic  AS victim_cnic,  v.email AS victim_email,
                 v.phone AS victim_phone, v.address AS victim_address,
                 iv.injury_type
@@ -340,8 +360,8 @@ def get_incident_detail(incident_id: int, current_user: dict) -> dict:
             JOIN Location        l  ON i.location_id = l.location_id
             JOIN CaseStatus      cs ON i.status_id   = cs.status_id
             JOIN Incident_Victim iv ON i.incident_id = iv.incident_id
-            JOIN Victim          v  ON iv.victim_id  = v.victim_id
-            WHERE i.incident_id = %s AND iv.victim_id = %s
+            JOIN Victim          v  ON iv.user_id  = v.user_id
+            WHERE i.incident_id = %s AND iv.user_id = %s
             """,
             (incident_id, victim_id)
         )
@@ -405,11 +425,10 @@ def get_incident_detail(incident_id: int, current_user: dict) -> dict:
             },
             "case_status": {
                 "status_id":   incident["status_id"],
-                "status_name": incident["status_name"],
-                "phone":       incident["status_phone"],
+                "status_name": incident["status_name"]
             },
             "victim": {
-                "victim_id":    incident["victim_id"],
+                "victim_id":    incident["user_id"],
                 "name":         incident["victim_name"],
                 "cnic":         incident["victim_cnic"],
                 "email":        incident["victim_email"],

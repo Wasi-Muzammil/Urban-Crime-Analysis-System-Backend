@@ -211,7 +211,7 @@ def admin_search_incidents(
         JOIN Location        l   ON i.location_id = l.location_id
         JOIN CaseStatus      cs  ON i.status_id   = cs.status_id
         JOIN Incident_Victim iv  ON i.incident_id = iv.incident_id
-        JOIN Victim          v   ON iv.victim_id  = v.victim_id
+        JOIN Victim          v   ON iv.user_id  = v.user_id
     """
 
     # Extra JOIN added only when policestation_wise is active

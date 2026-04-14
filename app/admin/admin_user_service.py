@@ -282,14 +282,14 @@ def get_victim_by_user_id(target_user_id: int) -> dict:
         cursor.execute(
             """
             SELECT
-                victim_id,
+                user_id,
                 name,
                 cnic,
                 email,
                 phone,
                 address
             FROM Victim
-            WHERE victim_id = %s
+            WHERE user_id = %s
             """,
             (target_user_id,)
         )
@@ -331,7 +331,7 @@ def get_user_incidents(target_user_id: int) -> dict:
     try:
         # Verify victim exists
         cursor.execute(
-            "SELECT victim_id FROM Victim WHERE victim_id = %s",
+            "SELECT user_id FROM Victim WHERE user_id = %s",
             (target_user_id,)
         )
         if not cursor.fetchone():
@@ -356,7 +356,7 @@ def get_user_incidents(target_user_id: int) -> dict:
             JOIN Incident_Victim iv ON i.incident_id = iv.incident_id
             JOIN Location        l  ON i.location_id = l.location_id
             JOIN CaseStatus      cs ON i.status_id   = cs.status_id
-            WHERE iv.victim_id = %s
+            WHERE iv.user_id = %s
             ORDER BY i.reported_at DESC
             """,
             (target_user_id,)
@@ -396,8 +396,8 @@ def get_user_incident_detail(target_user_id: int, incident_id: int) -> dict:
         # ── Ownership check — incident must belong to this user ───────────────
         cursor.execute(
             """
-            SELECT victim_id FROM Incident_Victim
-            WHERE incident_id = %s AND victim_id = %s
+            SELECT user_id FROM Incident_Victim
+            WHERE incident_id = %s AND user_id = %s
             """,
             (incident_id, target_user_id)
         )
@@ -429,7 +429,7 @@ def get_user_incident_detail(target_user_id: int, incident_id: int) -> dict:
                 cs.status_id,
                 cs.status_name,
 
-                v.victim_id,
+                v.user_id,
                 v.name          AS victim_name,
                 v.cnic          AS victim_cnic,
                 v.email         AS victim_email,
@@ -441,8 +441,8 @@ def get_user_incident_detail(target_user_id: int, incident_id: int) -> dict:
             JOIN Location        l  ON i.location_id = l.location_id
             JOIN CaseStatus      cs ON i.status_id   = cs.status_id
             JOIN Incident_Victim iv ON i.incident_id = iv.incident_id
-            JOIN Victim          v  ON iv.victim_id  = v.victim_id
-            WHERE i.incident_id = %s AND iv.victim_id = %s
+            JOIN Victim          v  ON iv.user_id  = v.user_id
+            WHERE i.incident_id = %s AND iv.user_id = %s
             """,
             (incident_id, target_user_id)
         )
@@ -509,7 +509,7 @@ def get_user_incident_detail(target_user_id: int, incident_id: int) -> dict:
                 "status_name": incident["status_name"],
             },
             "victim": {
-                "victim_id":   incident["victim_id"],
+                "user_id":   incident["user_id"],
                 "name":        incident["victim_name"],
                 "cnic":        incident["victim_cnic"],
                 "email":       incident["victim_email"],
@@ -679,8 +679,8 @@ def admin_update_incident(
         # ── Verify incident belongs to this user ──────────────────────────────
         cursor.execute(
             """
-            SELECT victim_id FROM Incident_Victim
-            WHERE incident_id = %s AND victim_id = %s
+            SELECT user_id FROM Incident_Victim
+            WHERE incident_id = %s AND user_id = %s
             """,
             (incident_id, target_user_id)
         )
@@ -839,7 +839,7 @@ def admin_update_incident(
                 cnic    = COALESCE(%s, cnic),
                 phone   = COALESCE(%s, phone),
                 address = COALESCE(%s, address)
-            WHERE victim_id = %s
+            WHERE user_id = %s
             """,
             (form.victim_cnic, form.victim_phone, form.victim_address, target_user_id)
         )
@@ -850,7 +850,7 @@ def admin_update_incident(
             cursor.execute(
                 """
                 UPDATE Incident_Victim SET injury_type = %s
-                WHERE incident_id = %s AND victim_id = %s
+                WHERE incident_id = %s AND user_id = %s
                 """,
                 (form.injury_type, incident_id, target_user_id)
             )
