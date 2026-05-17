@@ -177,7 +177,7 @@ async def auth_google_callback(
 
 # Redirect back to Streamlit with token in URL
     streamlit_url = (
-        f"http://localhost:8501"
+        f"https://urban-crime-analysis-system-backend.vercel.app"
         f"?access_token={token}"
         f"&email={email}"
         f"&name={name}"
