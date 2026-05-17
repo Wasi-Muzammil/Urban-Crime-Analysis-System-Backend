@@ -30,15 +30,12 @@ def create_jwt_token(email: str) -> str:
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
 
-# ── Step 1: Redirect to Google consent screen ─────────────────────────────────
+# ── Step 1: Return Google URL instead of redirecting ─────────────────────────
 @router.get("/google")
 async def login_via_google():
-    """Redirects the browser to Google's OAuth consent screen."""
     if not GOOGLE_CLIENT_ID or not REDIRECT_URI:
-        raise HTTPException(
-            status_code=500,
-            detail="GOOGLE_CLIENT_ID or GOOGLE_REDIRECT_URI env var is not set."
-        )
+        raise HTTPException(status_code=500, detail="Missing env vars.")
+    
     params = {
         "client_id":     GOOGLE_CLIENT_ID,
         "redirect_uri":  REDIRECT_URI,
@@ -47,7 +44,8 @@ async def login_via_google():
         "access_type":   "offline",
         "prompt":        "consent",
     }
-    return RedirectResponse(url=f"https://accounts.google.com/o/oauth2/v2/auth?{urlencode(params)}")
+    google_url = f"https://accounts.google.com/o/oauth2/v2/auth?{urlencode(params)}"
+    return {"url": google_url}  # ✅ Return JSON, don't redirect
 
 
 # ── Step 2: Callback — exchange code, upsert user, issue JWT ─────────────────
