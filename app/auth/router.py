@@ -171,14 +171,19 @@ async def auth_google_callback(
     )
 
     # ── Return JWT as JSON ────────────────────────────────────────────────────
-    return {
-        "access_token": create_jwt_token(email),
-        "token_type":   "bearer",
-        "email":        email,
-        "name":         final_user.get("name"),
-        "role":         final_user.get("role"),
-    }
+    token = create_jwt_token(email)
+    name  = final_user.get("name")
+    role  = final_user.get("role")
 
+# Redirect back to Streamlit with token in URL
+    streamlit_url = (
+        f"http://localhost:8501"
+        f"?access_token={token}"
+        f"&email={email}"
+        f"&name={name}"
+        f"&role={role}"
+    )
+    return RedirectResponse(url=streamlit_url)
 
 # ── Logout ────────────────────────────────────────────────────────────────────
 @router.post("/logout")

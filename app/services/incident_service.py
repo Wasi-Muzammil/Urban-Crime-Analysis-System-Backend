@@ -170,7 +170,8 @@ def update_incident_media(
     ip_address:   str = None,
 ) -> dict:
 
-    if not form.cctv_footage_path and not form.picture_path:
+    # FIXED — allow empty string as intentional clear
+    if form.cctv_footage_path is None and form.picture_path is None:
         raise HTTPException(
             status_code=422,
             detail="At least one of cctv_footage_path or picture_path is required."
@@ -205,17 +206,17 @@ def update_incident_media(
         location_id = row["location_id"]
 
         # ── Update CCTV (Location Table) ──────────────────────
-        if form.cctv_footage_path:
+        if form.cctv_footage_path is not None:
             cursor.execute(
                 """UPDATE Location
                    SET cctv_footage_path = %s
                    WHERE location_id = %s""",
-                (form.cctv_footage_path, location_id)
+                (form.cctv_footage_path if form.cctv_footage_path != "" else None,
+                 location_id)
             )
 
         # ── Update Suspect Picture ────────────────────────────
-        if form.picture_path:
-            # Get all suspects linked to this incident
+        if form.picture_path is not None:
             cursor.execute(
                 """SELECT suspect_id FROM Incident_Suspect
                    WHERE incident_id = %s""",
@@ -223,11 +224,15 @@ def update_incident_media(
             )
             suspects = cursor.fetchall()
 
-            if not suspects:
-                raise HTTPException(
-                    status_code=404,
-                    detail="No suspects found for this incident."
-                )
+            if suspects:
+                for suspect in suspects:
+                    cursor.execute(
+                        """UPDATE Suspect
+                           SET picture_path = %s
+                           WHERE suspect_id = %s""",
+                        (form.picture_path if form.picture_path != "" else None,
+                         suspect["suspect_id"])
+                    )
 
             # Update ALL suspects (or you can update only one if needed)
             for suspect in suspects:
